@@ -1,5 +1,5 @@
 <?php
-require 'config.php';
+require 'config.php'; //файл конфигурации
 
 $input = json_decode(file_get_contents('php://input'), true);
 

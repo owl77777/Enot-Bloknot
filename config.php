@@ -1,10 +1,11 @@
 <?php
-// Настройки БД
-// В config.php
-define('FLOOD_DELAY', 1); // Задержка между сообщениями в секундах
+// Задержка между сообщениями в секундах
+define('FLOOD_DELAY', 1); 
 // При отправке нескольких сообщений
 usleep(FLOOD_DELAY * 1000000);
-// Настройки БД
+//обработчики голосовых сообщений от SpeechKit
+define('YANDEX_SPEECHKIT_KEY', 'SPEECHKIT_KEY');
+define('YANDEX_FOLDER_ID', 'FOLDER_ID');
 define('DB_HOST', 'HOST');
 define('DB_NAME', 'DB_NAME');
 define('DB_USER', 'DB_USER');

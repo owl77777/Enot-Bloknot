@@ -70,26 +70,27 @@ function showNotesList($chat_id) {
 
         $message = "📋 *Ваши записи:*\n\n";
         $keyboard = [];
+        
         foreach ($notes as $note) {
             $decrypted = decrypt($note['message']);
-            // Отключаем Markdown для коротких описаний
-            $short_text = mb_substr($decrypted, 0, 20) . (mb_strlen($decrypted) > 20 ? '...' : '');
-            $short_text = prepareText($short_text, false); // false - не применять Markdown
+            $short_text = mb_substr($decrypted, 0, 20);
+            if (mb_strlen($decrypted) > 20) {
+                $short_text .= '...';
+            }
             
-            $message .= "🆔 {$note['id']}: {$short_text}\n";
-            
+            // Создаем одну строку с кнопками
             $keyboard[] = [
                 [
-                    'text' => "📝 Показать",
+                    'text' => "📄 " . $short_text,
                     'callback_data' => "show_{$note['id']}"
                 ],
                 [
-                    'text' => "❌ Удалить",
+                    'text' => "❌",
                     'callback_data' => "delete_{$note['id']}"
                 ]
             ];
         }
-        // Отправляем сообщение с Markdown только для заголовка
+
         sendMessage($chat_id, $message, $keyboard);
     } catch (PDOException $e) {
         logError($e->getMessage());
@@ -113,7 +114,13 @@ function handleCallback($callback) {
             
             if ($note) {
                 $decrypted = decrypt($note['message']);
-                sendMessage($chat_id, "📄 Заметка #$note_id:\n\n$decrypted");
+                // Отправляем сообщение с кнопкой "Назад"
+                $keyboard = [
+                    [
+                        ['text' => "🔙 Назад к списку", 'callback_data' => "backtolist"]
+                    ]
+                ];
+                sendMessage($chat_id, "📄 Заметка #$note_id:\n\n$decrypted", $keyboard);
             }
         } 
         elseif ($action === 'delete') {
@@ -122,12 +129,24 @@ function handleCallback($callback) {
             answerCallback($callback['id'], "🗑 Заметка удалена!");
             showNotesList($chat_id); // Обновляем список
         }
+        elseif ($action === 'backtolist') {
+            // Удаляем предыдущее сообщение с полным текстом заметки
+            deleteMessage($chat_id, $callback['message']['message_id']);
+            showNotesList($chat_id);
+        }
     } catch (PDOException $e) {
         logError($e->getMessage());
         answerCallback($callback['id'], "⚠️ Ошибка операции");
     }
 }
 
+function deleteMessage($chat_id, $message_id) {
+    $url = "https://api.telegram.org/bot" . BOT_TOKEN . "/deleteMessage";
+    file_get_contents($url . '?' . http_build_query([
+        'chat_id' => $chat_id,
+        'message_id' => $message_id
+    ]));
+}
 /**
  * Логирование ошибок
  */

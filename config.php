@@ -1,5 +1,10 @@
 <?php
 // Настройки БД
+// В config.php
+define('FLOOD_DELAY', 1); // Задержка между сообщениями в секундах
+// При отправке нескольких сообщений
+usleep(FLOOD_DELAY * 1000000);
+// Настройки БД
 define('DB_HOST', 'HOST');
 define('DB_NAME', 'DB_NAME');
 define('DB_USER', 'DB_USER');
@@ -38,4 +43,5 @@ function decrypt($data) {
     $encrypted = substr($data, 16);
     return openssl_decrypt($encrypted, 'AES-256-CBC', ENCRYPTION_KEY, 0, $iv);
 }
+
 ?>

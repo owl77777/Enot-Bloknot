@@ -1,5 +1,5 @@
 <?php
-require 'config.php'; //файл конфигурации
+require 'config.php';
 
 $input = json_decode(file_get_contents('php://input'), true);
 
@@ -107,20 +107,16 @@ function handleCallback($callback) {
     }
 }
 
-// Отправка сообщения
-function sendMessage($chat_id, $text, $keyboard = null) {
-    $url = "https://api.telegram.org/bot" . BOT_TOKEN . "/sendMessage";
-    $data = [
-        'chat_id' => $chat_id,
-        'text' => $text,
-        'parse_mode' => 'Markdown'
-    ];
-    if ($keyboard) {
-        $data['reply_markup'] = json_encode(['inline_keyboard' => $keyboard]);
-    }
-    file_get_contents($url . '?' . http_build_query($data));
+/**
+ * Логирование ошибок
+ */
+function logError($message) {
+    file_put_contents(
+        __DIR__ . '/error.log',
+        '[' . date('Y-m-d H:i:s') . '] ' . $message . PHP_EOL,
+        FILE_APPEND
+    );
 }
-
 // Ответ на callback
 function answerCallback($callback_id, $text) {
     $url = "https://api.telegram.org/bot" . BOT_TOKEN . "/answerCallbackQuery";
@@ -130,8 +126,131 @@ function answerCallback($callback_id, $text) {
     ]));
 }
 
-// Логирование ошибок
-function logError($error) {
-    file_put_contents('error.log', date('Y-m-d H:i:s') . " - " . $error . "\n", FILE_APPEND);
+
+/**
+ * Отправляет текст как файл
+ */
+function sendAsFile($chat_id, $text, $filename = null) {
+    if ($filename === null) {
+        $filename = "note_" . date('Y-m-d_H-i-s') . ".txt";
+    }
+    
+    file_put_contents($filename, $text);
+    
+    $url = "https://api.telegram.org/bot" . BOT_TOKEN . "/sendDocument";
+    $data = [
+        'chat_id' => $chat_id,
+        'document' => new CURLFile(realpath($filename))
+    ];
+    
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => $url,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $data,
+        CURLOPT_RETURNTRANSFER => true
+    ]);
+    
+    $response = curl_exec($ch);
+    curl_close($ch);
+    
+    unlink($filename); // Удаляем временный файл
+    
+    return $response;
+}
+
+/**
+ * Улучшенная функция экранирования MarkdownV2
+ */
+function prepareText($text) {
+    // Символы, которые нужно экранировать
+    $chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'];
+    
+    // Сначала обрабатываем URL, чтобы не экранировать их содержимое
+    $text = preg_replace_callback('/(https?:\/\/[^\s]+)/', function($matches) {
+        $url = $matches[0];
+        // Экранируем только закрывающие скобки в URL
+        $url = str_replace([')'], ['\)'], $url);
+        return $url;
+    }, $text);
+
+    // Затем экранируем все спецсимволы вне URL
+    $result = '';
+    $inUrl = false;
+    $length = mb_strlen($text);
+    
+    for ($i = 0; $i < $length; $i++) {
+        $char = mb_substr($text, $i, 1);
+        
+        if ($char === '[' || $char === '(') {
+            $inUrl = true;
+        } elseif ($char === ']' || $char === ')') {
+            $inUrl = false;
+        }
+        
+        if (!$inUrl && in_array($char, $chars)) {
+            $char = '\\' . $char;
+        }
+        
+        $result .= $char;
+    }
+    
+    return $result;
+}
+
+/**
+ * Безопасная отправка сообщения с улучшенной обработкой Markdown
+ */
+function sendMessage($chat_id, $text, $keyboard = null, $parse_mode = 'MarkdownV2') {
+    $text = trim($text);
+    if (empty($text)) {
+        logError("Пустое сообщение для чата $chat_id");
+        return false;
+    }
+
+    // Подготавливаем текст в зависимости от режима разметки
+    if ($parse_mode === 'MarkdownV2') {
+        $text = prepareText($text);
+    }
+
+    $data = [
+        'chat_id' => $chat_id,
+        'text' => $text,
+        'parse_mode' => $parse_mode,
+        'disable_web_page_preview' => true
+    ];
+
+    if ($keyboard) {
+        $data['reply_markup'] = json_encode(['inline_keyboard' => $keyboard]);
+    }
+
+    $url = "https://api.telegram.org/bot" . BOT_TOKEN . "/sendMessage";
+    $ch = curl_init();
+    
+    curl_setopt_array($ch, [
+        CURLOPT_URL => $url,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $data,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 15
+    ]);
+
+    $response = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    
+    if ($http_code != 200) {
+        $error = json_decode($response, true)['description'] ?? $response;
+        logError("Ошибка отправки: HTTP $http_code - $error\nТекст: ".substr($text, 0, 1000));
+        
+        // Пытаемся отправить как plain text при ошибке
+        if ($parse_mode !== '') {
+            unset($data['parse_mode']);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
+            $response = curl_exec($ch);
+        }
+    }
+
+    curl_close($ch);
+    return $http_code === 200;
 }
 ?>
